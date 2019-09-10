@@ -19,6 +19,9 @@ import com.esri.core.geometry.ogc.OGCPoint;
 import com.facebook.presto.geospatial.GeometryUtils;
 import com.facebook.presto.geospatial.Rectangle;
 import com.google.common.collect.ImmutableList;
+import org.locationtech.jts.index.strtree.STRtree;
+import org.openjdk.jol.info.ClassLayout;
+import org.openjdk.jol.info.GraphLayout;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -26,12 +29,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.geospatial.rtree.Flatbush.ENVELOPE_SIZE;
 import static com.facebook.presto.geospatial.rtree.RtreeTestUtils.makeRectangles;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Double.NEGATIVE_INFINITY;
 import static java.lang.Double.POSITIVE_INFINITY;
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static org.testng.Assert.assertEquals;
 
@@ -276,4 +281,111 @@ public class TestFlatbush
             return RECTANGLE_COMPARATOR.compare(this.getExtent(), other.getExtent());
         }
     }
+
+
+
+    @Test
+    public void calculateObjectTreeSizes()
+    {
+        calculateObjectTreeSize(10);
+        calculateObjectTreeSize(100);
+        calculateObjectTreeSize(1000);
+        calculateObjectTreeSize(10_000);
+        calculateObjectTreeSize(100_000);
+        calculateObjectTreeSize(1_000_000);
+
+        assert(false);
+    }
+
+    private void calculateObjectTreeSize(int numRectangles) {
+        Random random = new Random(42);
+        System.err.println("Number rectangles: " + numRectangles);
+
+        List<OGCGeometry> esriRectangles = makeRectangles(random, numRectangles).stream()
+                .map(r -> OGCGeometry.createFromEsriGeometry(
+                        new com.esri.core.geometry.Envelope(
+                            r.getXMin(),
+                            r.getYMin(),
+                            r.getXMax(),
+                            r.getYMax()), null))
+                .collect(Collectors.toList());
+        reportSizeAndCount(esriRectangles, "esriRectangles");
+
+        List<GeometryWithPosition> buildRectangles = esriRectangles.stream()
+                .map(env -> new GeometryWithPosition(env,0, 0))
+                .collect(Collectors.toList());
+
+        reportSizeAndCount(buildRectangles, "buildRectangles");
+
+
+        Flatbush<GeometryWithPosition> flatbush = new Flatbush<>(buildRectangles.toArray(new GeometryWithPosition[] {}));
+        reportSizeAndCount(flatbush, "Flatbush (full)");
+
+        STRtree strTree = new STRtree();
+        for (OGCGeometry geom: esriRectangles) {
+            strTree.insert(GeometryUtils.getJtsEnvelope(geom), geom);
+        }
+        reportSizeAndCount(strTree, "StrTree (prebuild)");
+        strTree.build();
+        reportSizeAndCount(strTree, "StrTree (postbuild)");
+    }
+
+    private void reportSizeAndCount(Object obj, String name) {
+        GraphLayout graph = GraphLayout.parseInstance(obj);
+        System.err.println(name + " tree memory: " + graph.totalSize());
+        System.err.println(name + " tree count: " + graph.totalCount());
+    }
+
+
+    public static final class GeometryWithPosition
+            implements HasExtent
+    {
+        private static final int INSTANCE_SIZE = ClassLayout.parseClass(GeometryWithPosition.class).instanceSize();
+
+        private final OGCGeometry ogcGeometry;
+        private final int partition;
+        private final int position;
+        private final Rectangle extent;
+
+        public GeometryWithPosition(OGCGeometry ogcGeometry, int partition, int position)
+        {
+            this(ogcGeometry, partition, position, 0.0f);
+        }
+
+        public GeometryWithPosition(OGCGeometry ogcGeometry, int partition, int position, double radius)
+        {
+            this.ogcGeometry = requireNonNull(ogcGeometry, "ogcGeometry is null");
+            this.partition = partition;
+            this.position = position;
+            this.extent = GeometryUtils.getExtent(ogcGeometry, radius);
+        }
+
+        public OGCGeometry getGeometry()
+        {
+            return ogcGeometry;
+        }
+
+        public int getPartition()
+        {
+            return partition;
+        }
+
+        public int getPosition()
+        {
+            return position;
+        }
+
+        @Override
+        public Rectangle getExtent()
+        {
+            return extent;
+        }
+
+        @Override
+        public long getEstimatedSizeInBytes()
+        {
+            return INSTANCE_SIZE + ogcGeometry.estimateMemorySize() + extent.getEstimatedSizeInBytes();
+        }
+    }
+
 }
