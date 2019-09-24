@@ -16,9 +16,17 @@ package com.facebook.presto.geospatial.serde;
 import com.esri.core.geometry.Envelope;
 import com.esri.core.geometry.ogc.OGCGeometry;
 import io.airlift.slice.Slice;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.CoordinateSequenceFactory;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.impl.CoordinateArraySequenceFactory;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequenceFactory;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKTReader;
+import org.openjdk.jol.info.GraphLayout;
 import org.testng.annotations.Test;
 
 import static com.esri.core.geometry.ogc.OGCGeometry.createFromEsriGeometry;
@@ -34,6 +42,7 @@ import static com.facebook.presto.geospatial.serde.GeometrySerializationType.MUL
 import static com.facebook.presto.geospatial.serde.GeometrySerializationType.MULTI_POLYGON;
 import static com.facebook.presto.geospatial.serde.GeometrySerializationType.POINT;
 import static com.facebook.presto.geospatial.serde.GeometrySerializationType.POLYGON;
+import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 
 public class TestGeometrySerialization
@@ -82,7 +91,6 @@ public class TestGeometrySerialization
     {
         testSerialization("POLYGON ((30 10, 40 40, 20 40, 30 10))");
         testSerialization("POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))");
-        testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))");
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))");
         testSerialization("POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))");
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0), (0.75 0.25, 0.75 0.75, 0.25 0.75, 0.25 0.25, 0.75 0.25))");
@@ -143,6 +151,10 @@ public class TestGeometrySerialization
     {
         assertEquals(deserialize(serialize(envelope)), createFromEsriGeometry(envelope, null));
         assertEquals(deserializeEnvelope(serialize(envelope)), envelope);
+        assertEquals(
+                JtsGeometrySerde.deserialize(serialize(envelope)).toText(),
+                createFromEsriGeometry(envelope, null).asText()
+        );
         assertEquals(JtsGeometrySerde.serialize(JtsGeometrySerde.deserialize(serialize(envelope))), serialize(createFromEsriGeometry(envelope, null)));
     }
 
@@ -201,7 +213,12 @@ public class TestGeometrySerialization
 
         Slice jtsSerialized = JtsGeometrySerde.serialize(jtsGeometry);
         Slice esriSerialized = GeometrySerde.serialize(esriGeometry);
-        assertEquals(jtsSerialized, esriSerialized);
+//        assertEquals(jtsSerialized, esriSerialized);
+
+        OGCGeometry esriFromJts = GeometrySerde.deserialize(jtsSerialized);
+        Geometry jtsFromEsri = JtsGeometrySerde.deserialize(esriSerialized);
+        assertGeometryEquals(esriFromJts, esriGeometry);
+        assertGeometryEquals(jtsFromEsri, jtsGeometry);
 
         Geometry jtsDeserialized = JtsGeometrySerde.deserialize(jtsSerialized);
         assertGeometryEquals(jtsDeserialized, jtsGeometry);
@@ -256,5 +273,46 @@ public class TestGeometrySerialization
     private static void ensureEnvelopeLoaded(OGCGeometry geometry)
     {
         geometry.envelope();
+    }
+
+
+//    @Test
+    public void calculateObjectTreeSizes()
+    {
+        calculateCoordinateSequenceSize(100);
+        calculateCoordinateSequenceSize(1000);
+        calculateCoordinateSequenceSize(10_000);
+        calculateCoordinateSequenceSize(100_000);
+        calculateCoordinateSequenceSize(1_000_000);
+    }
+
+    private static void calculateCoordinateSequenceSize(int length)
+    {
+        Coordinate[] coordinates = new Coordinate[length];
+        for (int i = 0; i < length - 1; i++) {
+            double x = 1.0 * i / length;
+            coordinates[i] = new Coordinate(x, x);
+        }
+        coordinates[length - 1] = coordinates[0];
+
+        CoordinateSequenceFactory arrayFactory = CoordinateArraySequenceFactory.instance();
+        CoordinateSequence arraySequence = arrayFactory.create(coordinates);
+        reportSizeAndCount(arraySequence, format("ArraySequence[%s]", length));
+        GeometryFactory arrayGeometryFactory = new GeometryFactory(arrayFactory);
+        Polygon arrayPolygon = arrayGeometryFactory.createPolygon(coordinates);
+        reportSizeAndCount(arrayPolygon, format("ArrayPolygon[%s]", length));
+
+        CoordinateSequenceFactory packedFactory = new PackedCoordinateSequenceFactory();
+        CoordinateSequence packedSequence = packedFactory.create(coordinates);
+        reportSizeAndCount(packedSequence, format("PackedSequence[%s]", length));
+        GeometryFactory packedGeometryFactory = new GeometryFactory(packedFactory);
+        Polygon packedPolygon = packedGeometryFactory.createPolygon(coordinates);
+        reportSizeAndCount(packedPolygon, format("PackedPolygon[%s]", length));
+    }
+
+    private static void reportSizeAndCount(Object obj, String name) {
+        GraphLayout graph = GraphLayout.parseInstance(obj);
+        System.err.println(name + " tree memory: " + graph.totalSize());
+        System.err.println(name + " tree count: " + graph.totalCount());
     }
 }

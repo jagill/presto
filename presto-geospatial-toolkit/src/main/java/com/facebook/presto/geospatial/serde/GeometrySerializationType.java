@@ -68,4 +68,26 @@ public enum GeometrySerializationType
                 throw new IllegalArgumentException("Invalid type code: " + code);
         }
     }
+
+    public static GeometrySerializationType getForGeometryType(GeometryType type)
+    {
+        switch (type) {
+            case POINT:
+                return POINT;
+            case MULTI_POINT:
+                return MULTI_POINT;
+            case LINE_STRING:
+                return LINE_STRING;
+            case MULTI_LINE_STRING:
+                return MULTI_LINE_STRING;
+            case POLYGON:
+                return POLYGON;
+            case MULTI_POLYGON:
+                return MULTI_POLYGON;
+            case GEOMETRY_COLLECTION:
+                return GEOMETRY_COLLECTION;
+            default:
+                throw new IllegalArgumentException("Invalid GeometryType: " + type.toString());
+        }
+    }
 }
