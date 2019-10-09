@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.geospatial.serde;
 
+import com.facebook.presto.geospatial.GeometryType;
+import com.facebook.presto.spi.PrestoException;
 import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
@@ -32,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.facebook.presto.geospatial.GeometryUtils.translateToAVNaN;
+import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
@@ -75,7 +78,7 @@ public class JtsGeometrySerde
             case ENVELOPE:
                 return readEnvelope(input);
             default:
-                throw new UnsupportedOperationException("Unexpected type: " + type);
+                throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unexpected type in deserialization: " + type);
         }
     }
 
@@ -267,26 +270,27 @@ public class JtsGeometrySerde
 
     private static void writeGeometry(Geometry geometry, DynamicSliceOutput output)
     {
-        switch (geometry.getGeometryType()) {
-            case "Point":
+        GeometryType type = GeometryType.getForJtsGeometryType(geometry.getGeometryType());
+        switch (type) {
+            case POINT:
                 writePoint((Point) geometry, output);
                 break;
-            case "MultiPoint":
+            case MULTI_POINT:
                 writeMultiPoint((MultiPoint) geometry, output);
                 break;
-            case "LineString":
+            case LINE_STRING:
                 writePolyline(geometry, output, false);
                 break;
-            case "MultiLineString":
+            case MULTI_LINE_STRING:
                 writePolyline(geometry, output, true);
                 break;
-            case "Polygon":
+            case POLYGON:
                 writePolygon(geometry, output, false);
                 break;
-            case "MultiPolygon":
+            case MULTI_POLYGON:
                 writePolygon(geometry, output, true);
                 break;
-            case "GeometryCollection":
+            case GEOMETRY_COLLECTION:
                 writeGeometryCollection(geometry, output);
                 break;
             default:

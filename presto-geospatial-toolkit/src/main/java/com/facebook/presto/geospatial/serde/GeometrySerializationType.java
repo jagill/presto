@@ -13,7 +13,9 @@
  */
 package com.facebook.presto.geospatial.serde;
 
+import com.esri.core.geometry.ogc.OGCGeometry;
 import com.facebook.presto.geospatial.GeometryType;
+import org.locationtech.jts.geom.Geometry;
 
 public enum GeometrySerializationType
 {
@@ -67,5 +69,39 @@ public enum GeometrySerializationType
             default:
                 throw new IllegalArgumentException("Invalid type code: " + code);
         }
+    }
+
+    public static GeometrySerializationType getForGeometryType(GeometryType type)
+    {
+        switch (type) {
+            case POINT:
+                return POINT;
+            case MULTI_POINT:
+                return MULTI_POINT;
+            case LINE_STRING:
+                return LINE_STRING;
+            case MULTI_LINE_STRING:
+                return MULTI_LINE_STRING;
+            case POLYGON:
+                return POLYGON;
+            case MULTI_POLYGON:
+                return MULTI_POLYGON;
+            case GEOMETRY_COLLECTION:
+                return GEOMETRY_COLLECTION;
+            default:
+                throw new IllegalArgumentException("Invalid GeometryType: " + type.toString());
+        }
+    }
+
+    public static GeometrySerializationType of(OGCGeometry geometry)
+    {
+        return GeometrySerializationType.getForGeometryType(
+                GeometryType.getForEsriGeometryType(geometry.geometryType()));
+    }
+
+    public static GeometrySerializationType of(Geometry geometry)
+    {
+        return GeometrySerializationType.getForGeometryType(
+                GeometryType.getForJtsGeometryType(geometry.getGeometryType()));
     }
 }

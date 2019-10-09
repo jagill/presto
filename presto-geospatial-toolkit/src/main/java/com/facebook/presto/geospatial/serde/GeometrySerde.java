@@ -31,10 +31,12 @@ import com.esri.core.geometry.ogc.OGCMultiPolygon;
 import com.esri.core.geometry.ogc.OGCPoint;
 import com.esri.core.geometry.ogc.OGCPolygon;
 import com.facebook.presto.geospatial.GeometryType;
+import com.facebook.presto.spi.PrestoException;
 import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
+import io.airlift.slice.SliceOutput;
 
 import javax.annotation.Nullable;
 
@@ -45,6 +47,7 @@ import java.util.List;
 import static com.esri.core.geometry.Geometry.Type.Unknown;
 import static com.esri.core.geometry.GeometryEngine.geometryToEsriShape;
 import static com.facebook.presto.geospatial.GeometryUtils.isEsriNaN;
+import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.google.common.base.Verify.verify;
 import static java.lang.Double.NaN;
 import static java.lang.Double.isNaN;
@@ -55,11 +58,11 @@ public class GeometrySerde
 {
     private GeometrySerde() {}
 
-    public static Slice serialize(OGCGeometry input)
+    public static Slice serialize(OGCGeometry geometry)
     {
-        requireNonNull(input, "input is null");
+        requireNonNull(geometry, "geometry is null");
         DynamicSliceOutput output = new DynamicSliceOutput(100);
-        writeGeometry(output, input);
+        writeGeometry(output, geometry);
         return output.slice();
     }
 
@@ -67,8 +70,8 @@ public class GeometrySerde
     {
         requireNonNull(envelope, "envelope is null");
         verify(!envelope.isEmpty());
-        DynamicSliceOutput output = new DynamicSliceOutput(100);
-        output.appendByte(GeometrySerializationType.ENVELOPE.code());
+        DynamicSliceOutput output = new DynamicSliceOutput(33);
+        writeType(output, GeometrySerializationType.ENVELOPE);
         writeEnvelopeCoordinates(output, envelope);
         return output.slice();
     }
@@ -78,7 +81,12 @@ public class GeometrySerde
         return deserializeType(shape).geometryType();
     }
 
-    private static void writeGeometry(DynamicSliceOutput output, OGCGeometry geometry)
+    static void writeType(SliceOutput output, GeometrySerializationType type)
+    {
+        output.writeByte(type.code());
+    }
+
+    private static void writeGeometry(SliceOutput output, OGCGeometry geometry)
     {
         GeometryType type = GeometryType.getForEsriGeometryType(geometry.geometryType());
         switch (type) {
@@ -100,17 +108,16 @@ public class GeometrySerde
             case MULTI_POLYGON:
                 writeSimpleGeometry(output, GeometrySerializationType.MULTI_POLYGON, geometry);
                 break;
-            case GEOMETRY_COLLECTION: {
+            case GEOMETRY_COLLECTION:
                 verify(geometry instanceof OGCConcreteGeometryCollection);
                 writeGeometryCollection(output, (OGCConcreteGeometryCollection) geometry);
                 break;
-            }
             default:
-                throw new IllegalArgumentException("Unexpected type: " + type);
+                throw new IllegalArgumentException("Unsupported geometry type : " + geometry.geometryType());
         }
     }
 
-    private static void writeGeometryCollection(DynamicSliceOutput output, OGCGeometryCollection collection)
+    private static void writeGeometryCollection(SliceOutput output, OGCGeometryCollection collection)
     {
         output.appendByte(GeometrySerializationType.GEOMETRY_COLLECTION.code());
         for (int geometryIndex = 0; geometryIndex < collection.numGeometries(); geometryIndex++) {
@@ -128,15 +135,15 @@ public class GeometrySerde
         }
     }
 
-    private static void writeSimpleGeometry(DynamicSliceOutput output, GeometrySerializationType type, OGCGeometry geometry)
+    private static void writeSimpleGeometry(SliceOutput output, GeometrySerializationType type, OGCGeometry geometry)
     {
-        output.appendByte(type.code());
+        writeType(output, type);
         Geometry esriGeometry = requireNonNull(geometry.getEsriGeometry(), "esriGeometry is null");
         byte[] shape = geometryToEsriShape(esriGeometry);
         output.appendBytes(shape);
     }
 
-    private static void writePoint(DynamicSliceOutput output, OGCGeometry geometry)
+    private static void writePoint(SliceOutput output, OGCGeometry geometry)
     {
         Geometry esriGeometry = geometry.getEsriGeometry();
         verify(esriGeometry instanceof Point, "geometry is expected to be an instance of Point");
@@ -145,7 +152,7 @@ public class GeometrySerde
                         !point.hasAttribute(VertexDescription.Semantics.M) &&
                         !point.hasAttribute(VertexDescription.Semantics.ID),
                 "Only 2D points with no ID nor M attribute are supported");
-        output.appendByte(GeometrySerializationType.POINT.code());
+        writeType(output, GeometrySerializationType.POINT);
         if (!point.isEmpty()) {
             output.appendDouble(point.getX());
             output.appendDouble(point.getY());
@@ -190,7 +197,7 @@ public class GeometrySerde
             case ENVELOPE:
                 return createFromEsriGeometry(readEnvelope(input), false);
             default:
-                throw new IllegalArgumentException("Unexpected type: " + type);
+                throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unexpected type in deserialization: " + type);
         }
     }
 
@@ -298,7 +305,7 @@ public class GeometrySerde
             case ENVELOPE:
                 return readEnvelope(input);
             default:
-                throw new IllegalArgumentException("Unexpected type: " + type);
+                throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unexpected type in deserialization: " + type);
         }
     }
 
