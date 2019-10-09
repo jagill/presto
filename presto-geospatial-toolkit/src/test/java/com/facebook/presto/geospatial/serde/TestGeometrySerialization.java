@@ -83,7 +83,6 @@ public class TestGeometrySerialization
         testSerialization("POLYGON ((30 10, 40 40, 20 40, 30 10))");
         testSerialization("POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))");
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))");
-        testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))");
         testSerialization("POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))");
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0), (0.75 0.25, 0.75 0.75, 0.25 0.75, 0.25 0.25, 0.75 0.25))");
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0), (0.25 0.25, 0.25 0.75, 0.75 0.75, 0.75 0.25, 0.25 0.25))");
@@ -201,7 +200,11 @@ public class TestGeometrySerialization
 
         Slice jtsSerialized = JtsGeometrySerde.serialize(jtsGeometry);
         Slice esriSerialized = GeometrySerde.serialize(esriGeometry);
-        assertEquals(jtsSerialized, esriSerialized);
+
+        OGCGeometry esriFromJts = GeometrySerde.deserialize(jtsSerialized);
+        Geometry jtsFromEsri = JtsGeometrySerde.deserialize(esriSerialized);
+        assertGeometryEquals(esriFromJts, esriGeometry);
+        assertGeometryEquals(jtsFromEsri, jtsGeometry);
 
         Geometry jtsDeserialized = JtsGeometrySerde.deserialize(jtsSerialized);
         assertGeometryEquals(jtsDeserialized, jtsGeometry);
