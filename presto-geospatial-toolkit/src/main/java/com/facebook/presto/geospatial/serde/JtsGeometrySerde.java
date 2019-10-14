@@ -18,28 +18,35 @@ import com.facebook.presto.spi.PrestoException;
 import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
+import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
+import io.airlift.slice.Slices;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.LinearRing;
+import org.locationtech.jts.geom.MultiLineString;
+import org.locationtech.jts.geom.MultiPoint;
+import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.io.ByteOrderValues;
-import org.locationtech.jts.io.ParseException;
-import org.locationtech.jts.io.WKBReader;
-import org.locationtech.jts.io.WKBWriter;
+import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequence;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequenceFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import static com.facebook.presto.geospatial.serde.GeometrySerde.skipEnvelope;
-import static com.facebook.presto.geospatial.serde.GeometrySerde.writeType;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.readCoordinates;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.readType;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.skipEnvelope;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.writeType;
 import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.google.common.base.Verify.verify;
+import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
+import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 import static java.lang.Double.NaN;
 import static java.lang.Double.isNaN;
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -48,8 +55,7 @@ import static java.util.Objects.requireNonNull;
  */
 public class JtsGeometrySerde
 {
-    // TODO: Are we sure this is thread safe?
-    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory();
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PackedCoordinateSequenceFactory());
 
     private JtsGeometrySerde() {}
 
@@ -102,14 +108,21 @@ public class JtsGeometrySerde
                 writePoint(output, (Point) geometry);
                 break;
             case MULTI_POINT:
+                writeMultiPoint(output, (MultiPoint) geometry);
+                break;
             case LINE_STRING:
+                writeLineString(output, (LineString) geometry);
+                break;
             case MULTI_LINE_STRING:
+                writeMultiLineString(output, (MultiLineString) geometry);
+                break;
             case POLYGON:
+                writePolygon(output, (Polygon) geometry);
+                break;
             case MULTI_POLYGON:
-                writeSimpleGeometry(output, geometry);
+                writeMultiPolygon(output, (MultiPolygon) geometry);
                 break;
             case GEOMETRY_COLLECTION:
-                verify(geometry instanceof GeometryCollection);
                 writeGeometryCollection(output, (GeometryCollection) geometry);
                 break;
             default:
@@ -130,29 +143,69 @@ public class JtsGeometrySerde
         }
     }
 
-    private static void writeSimpleGeometry(SliceOutput output, Geometry geometry)
+    private static void writeMultiPoint(SliceOutput output, MultiPoint multipoint)
     {
-        output.appendBytes(new WKBWriter(2, ByteOrderValues.LITTLE_ENDIAN).write(geometry));
+        int numGeometries = multipoint.getNumGeometries();
+        Slices.ensureSize(output.getUnderlyingSlice(), SIZE_OF_INT + numGeometries * 2 * SIZE_OF_DOUBLE);
+        output.writeInt(numGeometries);
+        for (int geometryIndex = 0; geometryIndex < numGeometries; geometryIndex++) {
+            writePoint(output, (Point) multipoint.getGeometryN(geometryIndex));
+        }
+    }
+
+    private static void writeLineString(SliceOutput output, LineString linestring)
+    {
+        writeCoordinateSequence(output, linestring.getCoordinateSequence());
+    }
+
+    private static void writeCoordinateSequence(SliceOutput output, CoordinateSequence coordinateSequence)
+    {
+        int numCoordinates = coordinateSequence.size();
+        Slices.ensureSize(output.getUnderlyingSlice(), SIZE_OF_INT + numCoordinates * 2 * SIZE_OF_DOUBLE);
+        output.writeInt(numCoordinates);
+        for (int i = 0; i < numCoordinates; i++) {
+            output.writeDouble(coordinateSequence.getX(i));
+            output.writeDouble(coordinateSequence.getY(i));
+        }
+    }
+
+    private static void writeMultiLineString(SliceOutput output, MultiLineString multilinestring)
+    {
+        int numGeometries = multilinestring.getNumGeometries();
+        output.writeInt(numGeometries);
+        for (int geometryIndex = 0; geometryIndex < numGeometries; geometryIndex++) {
+            writeLineString(output, (LineString) multilinestring.getGeometryN(geometryIndex));
+        }
+    }
+
+    public static void writePolygon(SliceOutput output, Polygon polygon)
+    {
+        writeLineString(output, polygon.getExteriorRing());
+        int numInteriorRings = polygon.getNumInteriorRing();
+        output.writeInt(numInteriorRings);
+        for (int geometryIndex = 0; geometryIndex < numInteriorRings; geometryIndex++) {
+            writeLineString(output, polygon.getInteriorRingN(geometryIndex));
+        }
+    }
+
+    public static void writeMultiPolygon(SliceOutput output, MultiPolygon multipolygon)
+    {
+        int numGeometries = multipolygon.getNumGeometries();
+        output.writeInt(numGeometries);
+        for (int geometryIndex = 0; geometryIndex < numGeometries; geometryIndex++) {
+            writePolygon(output, (Polygon) multipolygon.getGeometryN(geometryIndex));
+        }
     }
 
     private static void writeGeometryCollection(SliceOutput output, GeometryCollection collection)
     {
         int numGeometries = collection.getNumGeometries();
-        output.appendInt(numGeometries);
+        output.writeInt(numGeometries);
         for (int geometryIndex = 0; geometryIndex < numGeometries; geometryIndex++) {
             Geometry geometry = collection.getGeometryN(geometryIndex);
-            int startPosition = output.size();
-            // leave 4 bytes for the shape length
-            output.appendInt(0);
-
-            // Write the Geometry
-            writeType(output, GeometrySerializationType.of(geometry));
+            GeometrySerializationType type = GeometrySerializationType.of(geometry);
+            writeType(output, type);
             writeGeometry(output, geometry);
-
-            // Retroactively write the geometry length
-            int endPosition = output.size();
-            int length = endPosition - startPosition - Integer.BYTES;
-            output.getUnderlyingSlice().setInt(startPosition, length);
         }
     }
 
@@ -161,26 +214,43 @@ public class JtsGeometrySerde
         requireNonNull(shape, "shape is null");
         BasicSliceInput input = shape.getInput();
         verify(input.available() > 0);
-        GeometrySerializationType type = GeometrySerializationType.getForCode(input.readByte());
+        GeometrySerializationType type = readType(input);
         if (type != GeometrySerializationType.POINT && type != GeometrySerializationType.ENVELOPE) {
             skipEnvelope(input);
         }
-        return readGeometry(input, shape, type, input.available());
+        return readGeometry(input, type);
     }
 
-    private static Geometry readGeometry(BasicSliceInput input, Slice shape, GeometrySerializationType type, int length)
+    public static Envelope deserializeEnvelope(Slice shape)
+    {
+        requireNonNull(shape, "shape is null");
+        BasicSliceInput input = shape.getInput();
+        verify(input.available() > 0);
+        GeometrySerializationType type = readType(input);
+        if (type == GeometrySerializationType.POINT) {
+            return readPointEnvelope(input);
+        } else {
+            return readEnvelope(input);
+        }
+    }
+
+    private static Geometry readGeometry(BasicSliceInput input, GeometrySerializationType type)
     {
         switch (type) {
             case POINT:
                 return readPoint(input);
             case MULTI_POINT:
+                return readMultiPoint(input);
             case LINE_STRING:
+                return readLineString(input);
             case MULTI_LINE_STRING:
+                return readMultiLineString(input);
             case POLYGON:
+                return readPolygon(input);
             case MULTI_POLYGON:
-                return readSimpleGeometry(input, shape, length);
+                return readMultiPolygon(input);
             case GEOMETRY_COLLECTION:
-                return readGeometryCollection(input, shape);
+                return readGeometryCollection(input);
             case ENVELOPE:
                 return createPolygonFromEnvelope(readEnvelope(input));
             default:
@@ -197,28 +267,68 @@ public class JtsGeometrySerde
         return GEOMETRY_FACTORY.createPoint(coordinates);
     }
 
-    private static Geometry readSimpleGeometry(BasicSliceInput input, Slice shape, int length)
+    private static MultiPoint readMultiPoint(BasicSliceInput input)
     {
-        byte[] geometryBytes = shape.getBytes(toIntExact(input.position()), length);
-        input.skip(length);
-        try {
-            return new WKBReader(GEOMETRY_FACTORY).read(geometryBytes);
+        int numPoints = input.readInt();
+        Point[] points = new Point[numPoints];
+        for (int i = 0; i < numPoints; i++) {
+            points[i] = readPoint(input);
         }
-        catch (ParseException e) {
-            throw new PrestoException(GENERIC_INTERNAL_ERROR, e);
-        }
+        return GEOMETRY_FACTORY.createMultiPoint(points);
     }
 
-    private static GeometryCollection readGeometryCollection(BasicSliceInput input, Slice inputSlice)
+    private static LineString readLineString(BasicSliceInput input)
+    {
+        return GEOMETRY_FACTORY.createLineString(readCoordinateSequence(input));
+    }
+
+    private static MultiLineString readMultiLineString(BasicSliceInput input)
+    {
+        int numLineStrings = input.readInt();
+        LineString[] lineStrings = new LineString[numLineStrings];
+        for (int i = 0; i < numLineStrings; i++) {
+            lineStrings[i] = readLineString(input);
+        }
+        return GEOMETRY_FACTORY.createMultiLineString(lineStrings);
+    }
+
+    private static Polygon readPolygon(BasicSliceInput input)
+    {
+        LinearRing exterior = GEOMETRY_FACTORY.createLinearRing(readCoordinateSequence(input));
+        int numHoles = input.readInt();
+        LinearRing[] holes = new LinearRing[numHoles];
+        for (int i = 0; i < numHoles; i++) {
+            holes[i] = GEOMETRY_FACTORY.createLinearRing(readCoordinateSequence(input));
+        }
+        return GEOMETRY_FACTORY.createPolygon(exterior, holes);
+    }
+
+    private static MultiPolygon readMultiPolygon(BasicSliceInput input)
+    {
+        int numPolygons = input.readInt();
+        Polygon[] polygons = new Polygon[numPolygons];
+        for (int i = 0; i < numPolygons; i++) {
+            polygons[i] = readPolygon(input);
+        }
+
+        return GEOMETRY_FACTORY.createMultiPolygon(polygons);
+    }
+
+    private static GeometryCollection readGeometryCollection(BasicSliceInput input)
     {
         int numGeometries = input.readInt();
-        List<Geometry> geometries = new ArrayList<>(numGeometries);
+        Geometry[] geometries = new Geometry[numGeometries];
         for (int geometryIndex = 0; geometryIndex < numGeometries; geometryIndex++) {
-            int length = input.readInt();
             GeometrySerializationType type = GeometrySerializationType.getForCode(input.readByte());
-            geometries.add(readGeometry(input, inputSlice, type, length - 1));
+            geometries[geometryIndex] = readGeometry(input, type);
         }
-        return GEOMETRY_FACTORY.createGeometryCollection(geometries.toArray(new Geometry[0]));
+        return GEOMETRY_FACTORY.createGeometryCollection(geometries);
+    }
+
+    private static CoordinateSequence readCoordinateSequence(BasicSliceInput input)
+    {
+        double[] coordinates = readCoordinates(input);
+        return new PackedCoordinateSequence.Double(coordinates, 2, 0);
     }
 
     private static Geometry createPolygonFromEnvelope(Envelope envelope)
@@ -260,7 +370,16 @@ public class JtsGeometrySerde
 
     private static Coordinate readCoordinate(BasicSliceInput input)
     {
-        requireNonNull(input, "input is null");
         return new Coordinate(input.readDouble(), input.readDouble());
+    }
+
+    private static Envelope readPointEnvelope(SliceInput input)
+    {
+        double x = input.readDouble();
+        double y = input.readDouble();
+        if (isNaN(x) || isNaN(y)) {
+            return new Envelope();
+        }
+        return new Envelope(x, y, x, y);
     }
 }

@@ -15,12 +15,20 @@ package com.facebook.presto.geospatial.serde;
 
 import com.esri.core.geometry.Envelope;
 import com.esri.core.geometry.Geometry;
+import com.esri.core.geometry.MultiPath;
+import com.esri.core.geometry.MultiPoint;
+import com.esri.core.geometry.MultiVertexGeometry;
 import com.esri.core.geometry.Point;
+import com.esri.core.geometry.Point2D;
 import com.esri.core.geometry.Polygon;
+import com.esri.core.geometry.Polyline;
 import com.esri.core.geometry.VertexDescription;
 import com.esri.core.geometry.ogc.OGCConcreteGeometryCollection;
 import com.esri.core.geometry.ogc.OGCGeometry;
 import com.esri.core.geometry.ogc.OGCGeometryCollection;
+import com.esri.core.geometry.ogc.OGCLineString;
+import com.esri.core.geometry.ogc.OGCMultiLineString;
+import com.esri.core.geometry.ogc.OGCMultiPoint;
 import com.esri.core.geometry.ogc.OGCPoint;
 import com.esri.core.geometry.ogc.OGCPolygon;
 import com.facebook.presto.geospatial.GeometryType;
@@ -30,6 +38,7 @@ import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
+import io.airlift.slice.Slices;
 
 import javax.annotation.Nullable;
 
@@ -38,9 +47,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.facebook.presto.geospatial.GeometryUtils.isEsriNaN;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.readType;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.skipEnvelope;
+import static com.facebook.presto.geospatial.serde.GeometrySerdeUtils.writeType;
 import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
+import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 import static java.lang.Double.NaN;
 import static java.lang.Double.isNaN;
 import static java.lang.Math.toIntExact;
@@ -51,7 +64,7 @@ import static java.util.Objects.requireNonNull;
  * because it cannot support POINT EMPTY geometries.  These may occur in two
  * places: As a Point object, or as an entry in a GeometryCollection.  The
  * latter is not a valid geometry, but we need to handle the logical possibility.
- * Each serialization is prefixed by a 1-byte GeometrySerialzationType which
+ * Each serialization is prefixed by a 1-byte GeometrySerializationType which
  * controls how we serialize.
  *
  * Our serialization grammar is as follows:
@@ -59,18 +72,21 @@ import static java.util.Objects.requireNonNull;
  * COORDINATE: 8 bytes: double (x or y, not both)
  * BOUNDS: 32 bytes: COORDINATE*4
  * NUMBER: 4 bytes: int number of geometries in a collection
- * LENGTH: 4 bytes: int length of following geometry
- * WKB: variable: WKB Encoding of a non-Point non-GeometryCollection
+ * COORD_SEQ: variable (4 + 16 * N): NUMBER, COORDINATE * 2 * NUMBER
  *
- * POINT: 17 bytes: TYPE,COORDINATE*2
- * ENVELOPE: 33 bytes: TYPE,BOUNDS
- * SIMPLE: variable: TYPE,BOUNDS,WKB
+ * POINT: 17 bytes: TYPE, COORDINATE*2
+ * ENVELOPE: 33 bytes: TYPE, BOUNDS
+ * MULTIPOINT: variable (37 + 16 * N): TYPE, BOUNDS, COORD_SEQ
+ * LINESTRING: variable: TYPE, BOUNDS, COORD_SEQ
+ * MULTILINESTRING: variable: TYPE, BOUNDS, NUM_LINESTRINGS, COORD_SEQ*NUM_LINESTRINGS
+ * POLYGON: variable: TYPE, BOUNDS, POLYGON_INNER
+ * POLYGON_INNER: variable: COORD_SEQ, NUM_INTERIORS, COORD_SEQ*NUM_INTERIORS
+ * MULTIPOLYGON: variable: TYPE, BOUNDS, NUMBER, POLYGON_INNER*NUMBER
  * COLLECTION: variable: TYPE,BOUNDS,NUMBER,COLLECTION_INNER*NUMBER
  * COLLECTION_INNER: variable: LENGTH,GEOMETRY_INNER
- * GEOMETRY_INNER: variable: either POINT or TYPE,WKB (for simple) or
- *   TYPE,NUMBER,COLLECTION_INNER*NUMBER (for collection)
+ * GEOMETRY_INNER: variable: Geometry without BOUNDS
  *
- * SERIALIZED_GEOMETRY: variable: either POINT or ENVELOPE or SIMPLE or COLLECTION
+ * SERIALIZED_GEOMETRY: variable: one of the geometries above
  */
 public class GeometrySerde
 {
@@ -99,24 +115,19 @@ public class GeometrySerde
         return output.slice();
     }
 
-    static void writeType(SliceOutput output, GeometrySerializationType type)
-    {
-        output.writeByte(type.code());
-    }
-
     private static void writeEnvelopeCoordinates(SliceOutput output, Envelope envelope)
     {
         if (envelope.isEmpty()) {
-            output.appendDouble(NaN);
-            output.appendDouble(NaN);
-            output.appendDouble(NaN);
-            output.appendDouble(NaN);
+            output.writeDouble(NaN);
+            output.writeDouble(NaN);
+            output.writeDouble(NaN);
+            output.writeDouble(NaN);
         }
         else {
-            output.appendDouble(envelope.getXMin());
-            output.appendDouble(envelope.getYMin());
-            output.appendDouble(envelope.getXMax());
-            output.appendDouble(envelope.getYMax());
+            output.writeDouble(envelope.getXMin());
+            output.writeDouble(envelope.getYMin());
+            output.writeDouble(envelope.getXMax());
+            output.writeDouble(envelope.getYMax());
         }
     }
 
@@ -127,7 +138,11 @@ public class GeometrySerde
                 writePoint(output, geometry);
                 break;
             case MULTI_POINT:
+                writeMultiVertex(output, (MultiPoint) geometry.getEsriGeometry());
+                break;
             case LINE_STRING:
+                writeMultiVertex(output, (MultiPath) geometry.getEsriGeometry());
+                break;
             case MULTI_LINE_STRING:
             case POLYGON:
             case MULTI_POLYGON:
@@ -144,13 +159,7 @@ public class GeometrySerde
 
     private static void writePoint(SliceOutput output, OGCGeometry geometry)
     {
-        Geometry esriGeometry = geometry.getEsriGeometry();
-        verify(esriGeometry instanceof Point, "geometry is expected to be an instance of Point");
-        Point point = (Point) esriGeometry;
-        verify(!point.hasAttribute(VertexDescription.Semantics.Z) &&
-                        !point.hasAttribute(VertexDescription.Semantics.M) &&
-                        !point.hasAttribute(VertexDescription.Semantics.ID),
-                "Only 2D points with no ID nor M attribute are supported");
+        Point point = (Point) geometry.getEsriGeometry();
         if (!point.isEmpty()) {
             output.appendDouble(point.getX());
             output.appendDouble(point.getY());
@@ -159,6 +168,24 @@ public class GeometrySerde
             output.appendDouble(NaN);
             output.appendDouble(NaN);
         }
+    }
+
+    private static void writeMultiVertex(SliceOutput output, MultiVertexGeometry geometry)
+    {
+        int numPoints = geometry.getPointCount();
+        Slices.ensureSize(output.getUnderlyingSlice(), SIZE_OF_INT + SIZE_OF_DOUBLE * 2 * numPoints);
+        output.writeInt(numPoints);
+        for (int i = 0; i < numPoints; i++) {
+            Point2D point = new Point2D();
+            geometry.getXY(i, point);
+            output.writeDouble(point.x);
+            output.writeDouble(point.y);
+        }
+    }
+
+    private static void writeMultiLineString(SliceOutput output, OGCGeometry geometry)
+    {
+        Polyline polyline = (Polyline) geometry.getEsriGeometry();
     }
 
     private static void writeSimpleGeometry(SliceOutput output, OGCGeometry geometry)
@@ -205,7 +232,7 @@ public class GeometrySerde
         requireNonNull(shape, "shape is null");
         BasicSliceInput input = shape.getInput();
         verify(input.available() > 0);
-        GeometrySerializationType type = GeometrySerializationType.getForCode(input.readByte());
+        GeometrySerializationType type = readType(input);
         if (type != GeometrySerializationType.POINT && type != GeometrySerializationType.ENVELOPE) {
             skipEnvelope(input);
         }
@@ -219,7 +246,7 @@ public class GeometrySerde
         BasicSliceInput input = shape.getInput();
         verify(input.available() > 0);
 
-        GeometrySerializationType type = GeometrySerializationType.getForCode(input.readByte());
+        GeometrySerializationType type = readType(input);
         switch (type) {
             case POINT:
                 return readPointEnvelope(input);
@@ -243,7 +270,9 @@ public class GeometrySerde
             case POINT:
                 return readPoint(input);
             case MULTI_POINT:
+                return readMultiPoint(input);
             case LINE_STRING:
+                return readLineString(input);
             case MULTI_LINE_STRING:
             case POLYGON:
             case MULTI_POLYGON:
@@ -271,10 +300,32 @@ public class GeometrySerde
         return new OGCPoint(point, null);
     }
 
+    private static OGCMultiPoint readMultiPoint(BasicSliceInput input)
+    {
+        int numPoints = input.readInt();
+        MultiPoint multipoint = new MultiPoint();
+        for (int i = 0; i < numPoints; i++) {
+             multipoint.add(input.readDouble(), input.readDouble());
+        }
+        return new OGCMultiPoint(multipoint, null);
+    }
+
+    private static OGCLineString readLineString(BasicSliceInput input)
+    {
+        int numPoints = input.readInt();
+        Polyline polyline = new Polyline();
+        if (numPoints > 0) {
+            polyline.startPath(input.readDouble(), input.readDouble());
+            for (int i = 1; i < numPoints; i++) {
+                polyline.lineTo(input.readDouble(), input.readDouble());
+            }
+        }
+        return new OGCLineString(polyline, 0, null);
+    }
+
     private static OGCGeometry readSimpleGeometry(BasicSliceInput input, Slice shape, int length)
     {
-        ByteBuffer geometryBuffer = shape.toByteBuffer(
-                toIntExact(input.position()), length).slice();
+        ByteBuffer geometryBuffer = shape.toByteBuffer(toIntExact(input.position()), length).slice();
         input.skip(length);
         return OGCGeometry.fromBinary(geometryBuffer);
     }
@@ -326,12 +377,5 @@ public class GeometrySerde
             return new Envelope();
         }
         return new Envelope(xMin, yMin, xMax, yMax);
-    }
-
-    static void skipEnvelope(BasicSliceInput input)
-    {
-        requireNonNull(input, "input is null");
-        int skipLength = 4 * SIZE_OF_DOUBLE;
-        verify(input.skip(skipLength) == skipLength);
     }
 }
