@@ -193,7 +193,6 @@ public class TestGeoRelations
         assertRelation("ST_Overlaps", "'POLYGON ((1 1, 1 4, 4 4, 4 1, 1 1))'", "'POLYGON ((1 1, 1 4, 4 4, 4 1, 1 1))'", false);
         assertRelation("ST_Overlaps", "'POLYGON ((1 1, 1 4, 4 4, 4 1, 1 1))'", "'LINESTRING (1 1, 4 4)'", false);
         assertRelation("ST_Overlaps", "'POLYGON ((1 1, 1 3, 3 3, 3 1, 1 1))'", "'POLYGON ((4 4, 4 5, 5 5, 5 4, 4 4))'", false);
-        assertRelation("ST_Overlaps", "'MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1, 1 1)), ((0 0, 0 2, 2 2, 2 0, 0 0)))'", "'POLYGON ((0 1, 3 1, 3 3, 0 3, 0 1))'", true);
     }
 
     @Test
@@ -215,7 +214,6 @@ public class TestGeoRelations
         assertRelation("ST_Touches", "'POLYGON ((1 1, 1 3, 3 3, 3 1, 1 1))'", "'POLYGON ((4 4, 4 5, 5 5, 5 4, 4 4))'", false);
         assertRelation("ST_Touches", "'POLYGON ((1 1, 1 3, 3 3, 3 1, 1 1))'", "'LINESTRING (0 0, 1 1)'", true);
         assertRelation("ST_Touches", "'POLYGON ((1 1, 1 3, 3 3, 3 1, 1 1))'", "'POLYGON ((3 3, 3 5, 5 5, 5 3, 3 3))'", true);
-        assertRelation("ST_Touches", "'MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1, 1 1)), ((0 0, 0 2, 2 2, 2 0, 0 0)))'", "'POLYGON ((0 1, 3 1, 3 3, 0 3, 0 1))'", false);
     }
 
     @Test
@@ -269,6 +267,23 @@ public class TestGeoRelations
         testSymmetricRelations("ST_Crosses", CROSSES_PAIRS);
     }
 
+    @Test
+    public void testInvalidMultipolygon()
+    {
+        String multiPolygonWkt = "'MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1, 1 1)), ((0 0, 0 2, 2 2, 2 0, 0 0)))'";
+        String polygonWkt = "'POLYGON ((0 1, 1 0, 3 1, 3 3, 0 3, 0 1))'";
+        String errorMessage = "side location conflict [ (1.0, 2.0, NaN) ]";
+        assertInvalidRelation("ST_Contains", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Crosses", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Disjoint", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Equals", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Intersects", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Overlaps", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Touches", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidRelation("ST_Within", multiPolygonWkt, polygonWkt, errorMessage);
+        assertInvalidFunction(format("ST_Relate(ST_GeometryFromText(%s), ST_GeometryFromText(%s), 'T********')", multiPolygonWkt, polygonWkt), errorMessage);
+    }
+
     private void testSymmetricRelations(String relation, List<Pair<Integer, Integer>> pairs)
     {
         for (int i = 0; i < RELATION_GEOMETRIES_WKT.size(); i++) {
@@ -282,5 +297,10 @@ public class TestGeoRelations
     private void assertRelation(String relation, String leftWkt, String rightWkt, Boolean expected)
     {
         assertFunction(format("%s(ST_GeometryFromText(%s), ST_GeometryFromText(%s))", relation, leftWkt, rightWkt), BOOLEAN, expected);
+    }
+
+    private void assertInvalidRelation(String relation, String leftWkt, String rightWkt, String expectedMessage)
+    {
+        assertInvalidFunction(format("%s(ST_GeometryFromText(%s), ST_GeometryFromText(%s))", relation, leftWkt, rightWkt), expectedMessage);
     }
 }

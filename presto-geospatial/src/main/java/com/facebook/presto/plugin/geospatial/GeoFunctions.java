@@ -1052,10 +1052,14 @@ public final class GeoFunctions
         if (!envelopes(left, right, Envelope::contains)) {
             return false;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.contains(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.contains(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1067,10 +1071,14 @@ public final class GeoFunctions
         if (!envelopes(left, right, Envelope::intersect)) {
             return false;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.crosses(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.crosses(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1082,10 +1090,14 @@ public final class GeoFunctions
         if (!envelopes(left, right, Envelope::intersect)) {
             return true;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.disjoint(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.disjoint(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1094,10 +1106,17 @@ public final class GeoFunctions
     @SqlType(BOOLEAN)
     public static Boolean stEquals(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.Equals(rightGeometry);
+        if (!envelopes(left, right, Envelope::equals)) {
+            return false;
+        }
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.equalsTopo(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1109,10 +1128,14 @@ public final class GeoFunctions
         if (!envelopes(left, right, Envelope::intersect)) {
             return false;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.intersects(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.intersects(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1124,10 +1147,14 @@ public final class GeoFunctions
         if (!envelopes(left, right, Envelope::intersect)) {
             return false;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.overlaps(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.overlaps(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1136,10 +1163,14 @@ public final class GeoFunctions
     @SqlType(BOOLEAN)
     public static Boolean stRelate(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right, @SqlType(VARCHAR) Slice relation)
     {
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.relate(rightGeometry, relation.toStringUtf8());
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.relate(rightGeometry, relation.toStringUtf8());
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1151,10 +1182,14 @@ public final class GeoFunctions
         if (!envelopes(left, right, Envelope::intersect)) {
             return false;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.touches(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.touches(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @SqlNullable
@@ -1166,10 +1201,14 @@ public final class GeoFunctions
         if (!envelopes(right, left, Envelope::contains)) {
             return false;
         }
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.within(rightGeometry);
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        try {
+            return leftGeometry.within(rightGeometry);
+        }
+        catch (TopologyException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     @Description("Returns the type of the geometry")
