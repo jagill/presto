@@ -19,8 +19,6 @@ import com.esri.core.geometry.GeometryException;
 import com.esri.core.geometry.ListeningGeometryCursor;
 import com.esri.core.geometry.NonSimpleResult.Reason;
 import com.esri.core.geometry.OperatorUnion;
-import com.esri.core.geometry.Point;
-import com.esri.core.geometry.Polyline;
 import com.esri.core.geometry.ogc.OGCConcreteGeometryCollection;
 import com.esri.core.geometry.ogc.OGCGeometry;
 import com.esri.core.geometry.ogc.OGCLineString;
@@ -54,6 +52,7 @@ import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiLineString;
 import org.locationtech.jts.geom.TopologyException;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequence;
 import org.locationtech.jts.geom.impl.PackedCoordinateSequenceFactory;
 import org.locationtech.jts.linearref.LengthIndexedLine;
 import org.locationtech.jts.operation.distance.DistanceOp;
@@ -988,48 +987,45 @@ public final class GeoFunctions
     @SqlType(GEOMETRY_TYPE_NAME)
     public static Slice stIntersection(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
+        Envelope leftEnvelope = deserializeEnvelope(left);
+        Envelope rightEnvelope = deserializeEnvelope(right);
+
+        if (!leftEnvelope.isIntersecting(rightEnvelope)) {
+            return EMPTY_POLYGON;
+        }
+
         GeometrySerializationType leftType = deserializeType(left);
         GeometrySerializationType rightType = deserializeType(right);
 
+        // If one side is an envelope, then if it contains the other's envelope we can just return the other geometry.
+        if (leftType == GeometrySerializationType.ENVELOPE && leftEnvelope.contains(rightEnvelope)) {
+            return right;
+        }
+        if (rightType == GeometrySerializationType.ENVELOPE && rightEnvelope.contains(leftEnvelope)) {
+            return left;
+        }
+
         if (leftType == GeometrySerializationType.ENVELOPE && rightType == GeometrySerializationType.ENVELOPE) {
-            Envelope leftEnvelope = deserializeEnvelope(left);
-            Envelope rightEnvelope = deserializeEnvelope(right);
-
-            // Envelope#intersect updates leftEnvelope to the intersection of the two envelopes
-            if (!leftEnvelope.intersect(rightEnvelope)) {
-                return EMPTY_POLYGON;
-            }
-
             Envelope intersection = leftEnvelope;
-            if (intersection.getXMin() == intersection.getXMax()) {
-                if (intersection.getYMin() == intersection.getYMax()) {
-                    return EsriGeometrySerde.serialize(createFromEsriGeometry(new Point(intersection.getXMin(), intersection.getXMax()), null));
-                }
-                return EsriGeometrySerde.serialize(createFromEsriGeometry(new Polyline(new Point(intersection.getXMin(), intersection.getYMin()), new Point(intersection.getXMin(), intersection.getYMax())), null));
-            }
+            // Envelope#intersect updates leftEnvelope to the intersection of the two envelopes
+            intersection.intersect(rightEnvelope);
 
-            if (intersection.getYMin() == intersection.getYMax()) {
-                return EsriGeometrySerde.serialize(createFromEsriGeometry(new Polyline(new Point(intersection.getXMin(), intersection.getYMin()), new Point(intersection.getXMax(), intersection.getYMin())), null));
+            if (intersection.getXMin() == intersection.getXMax() || intersection.getYMin() == intersection.getYMax()) {
+                if (intersection.getYMin() == intersection.getYMax()) {
+                    return serialize(createJtsPoint(intersection.getXMin(), intersection.getYMin()));
+                }
+                double[] coordinates = new double[] {
+                        intersection.getXMin(), intersection.getYMin(), intersection.getXMax(), intersection.getYMax()
+                };
+                return serialize(createJtsLineString(new PackedCoordinateSequence.Double(coordinates, 2, 0)));
             }
 
             return EsriGeometrySerde.serialize(intersection);
         }
 
-        // If one side is an envelope, then if it contains the other's envelope we can just return the other geometry.
-        if (leftType == GeometrySerializationType.ENVELOPE
-                && deserializeEnvelope(left).contains(deserializeEnvelope(right))) {
-            return right;
-        }
-
-        if (rightType == GeometrySerializationType.ENVELOPE
-                && deserializeEnvelope(right).contains(deserializeEnvelope(left))) {
-            return left;
-        }
-
-        OGCGeometry leftGeometry = EsriGeometrySerde.deserialize(left);
-        OGCGeometry rightGeometry = EsriGeometrySerde.deserialize(right);
-        verifySameSpatialReference(leftGeometry, rightGeometry);
-        return EsriGeometrySerde.serialize(leftGeometry.intersection(rightGeometry));
+        Geometry leftGeometry = deserialize(left);
+        Geometry rightGeometry = deserialize(right);
+        return serialize(leftGeometry.intersection(rightGeometry));
     }
 
     @Description("Returns the Geometry value that represents the point set symmetric difference of two Geometries")
