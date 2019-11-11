@@ -565,9 +565,10 @@ public class TestGeoFunctions
         assertNumPoints("POINT (1 2)", 1);
         assertNumPoints("MULTIPOINT (1 2, 2 4, 3 6, 4 8)", 4);
         assertNumPoints("LINESTRING (8 4, 5 7)", 2);
+        assertNumPoints("LINESTRING (0 0, 1 1, 1 0, 0 0)", 4);
         assertNumPoints("MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))", 4);
-        assertNumPoints("POLYGON ((0 0, 8 0, 0 8, 0 0), (1 1, 1 5, 5 1, 1 1))", 6);
-        assertNumPoints("MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1, 1 1)), ((2 4, 2 6, 6 6, 6 4, 2 4)))", 8);
+        assertNumPoints("POLYGON ((0 0, 8 0, 0 8, 0 0), (1 1, 1 5, 5 1, 1 1))", 8);
+        assertNumPoints("MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1, 1 1)), ((2 4, 2 6, 6 6, 6 4, 2 4)))", 10);
         assertNumPoints("GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (8 4, 5 7), POLYGON EMPTY)", 3);
     }
 

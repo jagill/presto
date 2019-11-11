@@ -89,7 +89,6 @@ import static com.facebook.presto.geospatial.GeometryUtils.createJtsEmptyPolygon
 import static com.facebook.presto.geospatial.GeometryUtils.createJtsLineString;
 import static com.facebook.presto.geospatial.GeometryUtils.createJtsMultiPoint;
 import static com.facebook.presto.geospatial.GeometryUtils.createJtsPoint;
-import static com.facebook.presto.geospatial.GeometryUtils.getPointCount;
 import static com.facebook.presto.geospatial.GeometryUtils.jtsGeometryFromWkt;
 import static com.facebook.presto.geospatial.GeometryUtils.wktFromJtsGeometry;
 import static com.facebook.presto.geospatial.serde.EsriGeometrySerde.deserializeEnvelope;
@@ -797,7 +796,8 @@ public final class GeoFunctions
     @SqlType(BIGINT)
     public static long stNumPoints(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
-        return getPointCount(EsriGeometrySerde.deserialize(input));
+        return deserialize(input).getNumPoints();
+//        return getPointCount(EsriGeometrySerde.deserialize(input));
     }
 
     @SqlNullable

@@ -128,6 +128,8 @@ public class TestGeometrySerialization
         testSerialization("GEOMETRYCOLLECTION (POINT EMPTY)");
         testSerialization("GEOMETRYCOLLECTION EMPTY");
         testSerialization("GEOMETRYCOLLECTION (MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20))), GEOMETRYCOLLECTION (MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)))))");
+        testSerialization("GEOMETRYCOLLECTION (POLYGON EMPTY)");
+//        testSerialization("GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (8 4, 5 7), POLYGON EMPTY)");
     }
 
     @Test
