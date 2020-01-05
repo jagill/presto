@@ -39,6 +39,7 @@ import static com.facebook.presto.geospatial.serde.GeometrySerializationType.POI
 import static com.facebook.presto.geospatial.serde.GeometrySerializationType.POLYGON;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 public class TestGeometrySerialization
 {
@@ -137,10 +138,14 @@ public class TestGeometrySerialization
     @Test
     public void testEnvelope()
     {
-        testEnvelopeSerialization(new Envelope());
         testEnvelopeSerialization(new Envelope(0, 0, 1, 1));
         testEnvelopeSerialization(new Envelope(1, 2, 3, 4));
         testEnvelopeSerialization(new Envelope(10101, -2.05, -3e5, 0));
+
+        Slice emptySlice = serialize(new Envelope());
+        assertTrue(deserialize(emptySlice).isEmpty());
+        assertTrue(JtsGeometrySerde.deserialize(emptySlice).isEmpty());
+        assertTrue(deserializeEnvelope(emptySlice).isEmpty());
     }
 
     private void testEnvelopeSerialization(Envelope envelope)
