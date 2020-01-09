@@ -21,6 +21,7 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -30,6 +31,7 @@ import org.locationtech.jts.geom.MultiPoint;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.TopologyException;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequenceFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,8 +48,9 @@ import static java.util.Objects.requireNonNull;
 
 public class JtsGeometrySerde
 {
-    // TODO: Are we sure this is thread safe?
-    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory();
+    private static final PackedCoordinateSequenceFactory COORDINATE_SEQUENCE_FACTORY = new PackedCoordinateSequenceFactory();
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(COORDINATE_SEQUENCE_FACTORY);
+//    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory();
 
     private JtsGeometrySerde() {}
 
@@ -103,7 +106,7 @@ public class JtsGeometrySerde
         skipEsriType(input);
         skipEnvelope(input);
         int pointCount = input.readInt();
-        return GEOMETRY_FACTORY.createMultiPointFromCoords(readCoordinates(input, pointCount));
+        return GEOMETRY_FACTORY.createMultiPoint(readCoordinates(input, pointCount));
     }
 
     private static Geometry readPolyline(SliceInput input, boolean multitype)
@@ -178,8 +181,9 @@ public class JtsGeometrySerde
         List<Polygon> polygons = new ArrayList<>();
         try {
             for (int i = 0; i < partCount; i++) {
-                Coordinate[] coordinates = readCoordinates(input, partLengths[i]);
-                if (isClockwise(coordinates)) {
+                double[] coordinateDoubles = readCoordinateDoubles(input, partLengths[i]);
+                CoordinateSequence coordinates = COORDINATE_SEQUENCE_FACTORY.create(coordinateDoubles, 2);
+                if (isClockwise(coordinateDoubles)) {
                     // next polygon has started
                     if (shell != null) {
                         polygons.add(GEOMETRY_FACTORY.createPolygon(shell, holes.toArray(new LinearRing[0])));
@@ -254,13 +258,18 @@ public class JtsGeometrySerde
         return new Coordinate(input.readDouble(), input.readDouble());
     }
 
-    private static Coordinate[] readCoordinates(SliceInput input, int count)
+    private static double[] readCoordinateDoubles(SliceInput input, int count)
     {
-        Coordinate[] coordinates = new Coordinate[count];
-        for (int i = 0; i < count; i++) {
-            coordinates[i] = readCoordinate(input);
+        double[] coordinates = new double[2 * count];
+        for (int i = 0; i < 2 * count; i++) {
+            coordinates[i] = input.readDouble();
         }
         return coordinates;
+    }
+
+    private static CoordinateSequence readCoordinates(SliceInput input, int count)
+    {
+        return COORDINATE_SEQUENCE_FACTORY.create(readCoordinateDoubles(input, count), 2);
     }
 
     /**
@@ -480,6 +489,27 @@ public class JtsGeometrySerde
             // shell has to be counter clockwise
             reverse(coordinates, start, end);
         }
+    }
+
+    private static boolean isClockwise(double[] coordinates)
+    {
+        return isClockwise(coordinates, 0, coordinates.length / 2);
+    }
+
+    // start and end are in Coordinate space, so the starting x is
+    // coordinates[2 * start], and the starting y is
+    // coordinates[2 * start + 1]
+    private static boolean isClockwise(double[] coordinates, int start, int end)
+    {
+        // Sum over the edges: (x2 − x1) * (y2 + y1).
+        // If the result is positive the curve is clockwise,
+        // if it's negative the curve is counter-clockwise.
+        double area = 0;
+        for (int i = start + 1; i < end; i++) {
+            area += (coordinates[2 * i] - coordinates[2 * i - 2]) * (coordinates[2 * i + 1] + coordinates[2 * i - 1]);
+        }
+        area += (coordinates[2 * start] - coordinates[2 * end - 2]) * (coordinates[2 * start + 1] + coordinates[2 * end - 1]);
+        return area > 0;
     }
 
     private static boolean isClockwise(Coordinate[] coordinates)
