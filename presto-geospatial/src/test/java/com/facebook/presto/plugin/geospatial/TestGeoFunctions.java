@@ -22,8 +22,10 @@ import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.geospatial.KdbTreeUtils;
 import com.facebook.presto.geospatial.Rectangle;
 import com.facebook.presto.geospatial.serde.EsriGeometrySerde;
+import com.facebook.presto.geospatial.serde.JtsGeometrySerde;
 import com.facebook.presto.operator.scalar.AbstractTestFunctions;
 import com.google.common.collect.ImmutableList;
+import org.locationtech.jts.geom.LineString;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -37,6 +39,7 @@ import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.IntegerType.INTEGER;
 import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
+import static com.facebook.presto.geospatial.GeometryUtils.jtsGeometryFromWkt;
 import static com.facebook.presto.geospatial.KdbTree.buildKdbTree;
 import static com.facebook.presto.plugin.geospatial.GeoFunctions.stCentroid;
 import static com.facebook.presto.plugin.geospatial.GeometryType.GEOMETRY;
@@ -1102,6 +1105,15 @@ public class TestGeoFunctions
                             .collect(Collectors.joining(","))),
                 INVALID_FUNCTION_ARGUMENT,
                 format("Invalid input to ST_MultiPoint: %s", errorMessage));
+    }
+
+    @Test
+    public void testInnerPointN()
+    {
+        LineString ls = (LineString) jtsGeometryFromWkt("LINESTRING(1 2, 3 4, 5 6, 7 8)");
+        System.out.println("LS1: " + ls.getPointN(0));
+        LineString ls2 = (LineString) JtsGeometrySerde.deserialize(JtsGeometrySerde.serialize(ls));
+        System.out.println("LS2: " + ls2.getPointN(0));
     }
 
     @Test
