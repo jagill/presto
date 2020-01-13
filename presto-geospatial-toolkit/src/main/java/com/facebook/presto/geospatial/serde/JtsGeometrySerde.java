@@ -20,6 +20,7 @@ import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
+import io.airlift.slice.Slices;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Envelope;
@@ -445,9 +446,12 @@ public class JtsGeometrySerde
 
     private static void writeCoordinates(Coordinate[] coordinates, SliceOutput output)
     {
-        for (Coordinate coordinate : coordinates) {
-            writeCoordinate(coordinate, output);
+        double[] coordinateDoubles = new double[2 * coordinates.size()];
+        for (int i = 0; i < coordinates.size(); i++) {
+            coordinateDoubles[2 * i] = coordinates.getX(i);
+            coordinateDoubles[2 * i + 1] = coordinates.getY(i);
         }
+        ((DynamicSliceOutput) output).writeDoubles(coordinateDoubles);
     }
 
     private static void writeCoordinates(CoordinateSequence coordinates, SliceOutput output)
@@ -456,9 +460,7 @@ public class JtsGeometrySerde
             assert coordinates.getDimension() == 2;
 
             double[] coordinateDoubles = ((PackedCoordinateSequence.Double) coordinates).getRawCoordinates();
-            for (double x : coordinateDoubles) {
-                output.writeDouble(x);
-            }
+            ((DynamicSliceOutput) output).writeDoubles(coordinateDoubles);
         }
         else {
             writeCoordinates(coordinates.toCoordinateArray(), output);

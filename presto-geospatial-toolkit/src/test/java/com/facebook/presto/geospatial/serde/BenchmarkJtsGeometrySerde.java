@@ -100,10 +100,16 @@ public class BenchmarkJtsGeometrySerde
     }
 
     @Benchmark
-    public Object deserializeSimpleLineString(BenchmarkData data)
+    public Object serializeSimpleLineString2(BenchmarkData data)
     {
-        return deserialize(data.simpleLineStringSerialized);
+        return serialize(data.simpleLineStringDeserialized);
     }
+
+//    @Benchmark
+//    public Object deserializeSimpleLineString(BenchmarkData data)
+//    {
+//        return deserialize(data.simpleLineStringSerialized);
+//    }
 
     @Benchmark
     public Object serializeComplexLineString(BenchmarkData data)
@@ -112,10 +118,16 @@ public class BenchmarkJtsGeometrySerde
     }
 
     @Benchmark
-    public Object deserializeComplexLineString(BenchmarkData data)
+    public Object serializeComplexLineString2(BenchmarkData data)
     {
-        return deserialize(data.complexLineStringSerialized);
+        return serialize(data.complexLineStringDeserialized);
     }
+
+//    @Benchmark
+//    public Object deserializeComplexLineString(BenchmarkData data)
+//    {
+//        return deserialize(data.complexLineStringSerialized);
+//    }
 
     // MULTILINE STRING
     @Benchmark
@@ -125,10 +137,16 @@ public class BenchmarkJtsGeometrySerde
     }
 
     @Benchmark
-    public Object deserializeSimpleMultiLineString(BenchmarkData data)
+    public Object serializeSimpleMultiLineString2(BenchmarkData data)
     {
-        return deserialize(data.simpleMultiLineStringSerialized);
+        return serialize(data.simpleMultiLineStringDeserialized);
     }
+
+//    @Benchmark
+//    public Object deserializeSimpleMultiLineString(BenchmarkData data)
+//    {
+//        return deserialize(data.simpleMultiLineStringSerialized);
+//    }
 
     @Benchmark
     public Object serializeComplexMultiLineString(BenchmarkData data)
@@ -137,11 +155,16 @@ public class BenchmarkJtsGeometrySerde
     }
 
     @Benchmark
-    public Object deserializeComplexMultiLineString(BenchmarkData data)
+    public Object serializeComplexMultiLineString2(BenchmarkData data)
     {
-        return deserialize(data.complexMultiLineStringSerialized);
+        return serialize(data.complexMultiLineStringDeserialized);
     }
 
+//    @Benchmark
+//    public Object deserializeComplexMultiLineString(BenchmarkData data)
+//    {
+//        return deserialize(data.complexMultiLineStringSerialized);
+//    }
     // POLYGON
     @Benchmark
     public Object serializeSimplePolygon(BenchmarkData data)
@@ -233,14 +256,18 @@ public class BenchmarkJtsGeometrySerde
         // LINE STRING
         private Geometry simpleLineString;
         private Slice simpleLineStringSerialized;
+        private Geometry simpleLineStringDeserialized;
         private Geometry complexLineString;
         private Slice complexLineStringSerialized;
+        private Geometry complexLineStringDeserialized;
 
         // MULTILINE STRING
         private Geometry simpleMultiLineString;
         private Slice simpleMultiLineStringSerialized;
+        private Geometry simpleMultiLineStringDeserialized;
         private Geometry complexMultiLineString;
         private Slice complexMultiLineStringSerialized;
+        private Geometry complexMultiLineStringDeserialized;
 
         // POLYGON
         private Geometry simplePolygon;
@@ -273,13 +300,17 @@ public class BenchmarkJtsGeometrySerde
 
             simpleLineString = fromText(LINESTRING);
             simpleLineStringSerialized = serialize(simpleLineString);
+            simpleLineStringDeserialized = deserialize(simpleLineStringSerialized);
             complexLineString = fromText(readResource("complex-linestring.txt"));
             complexLineStringSerialized = serialize(complexLineString);
+            complexLineStringDeserialized = deserialize(complexLineStringSerialized);
 
             simpleMultiLineString = fromText(MULTILINESTRING);
             simpleMultiLineStringSerialized = serialize(simpleMultiLineString);
+            simpleMultiLineStringDeserialized = deserialize(simpleMultiLineStringSerialized);
             complexMultiLineString = fromText(readResource("complex-multilinestring.txt"));
             complexMultiLineStringSerialized = serialize(complexMultiLineString);
+            complexMultiLineStringDeserialized = deserialize(complexMultiLineStringSerialized);
 
             simplePolygon = fromText(POLYGON);
             simplePolygonSerialized = serialize(simplePolygon);
