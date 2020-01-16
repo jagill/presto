@@ -233,7 +233,9 @@ public final class GeometryUtils
     public static org.locationtech.jts.geom.Geometry jtsGeometryFromWkt(String wkt)
     {
         try {
-            return new WKTReader(GEOMETRY_FACTORY).read(wkt);
+            WKTReader reader = new WKTReader(GEOMETRY_FACTORY);
+            reader.setIsOldJtsCoordinateSyntaxAllowed(false);
+            return reader.read(wkt);
         }
         catch (ParseException | IllegalArgumentException e) {
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "Invalid WKT: " + e.getMessage(), e);

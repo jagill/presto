@@ -21,6 +21,7 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -30,6 +31,8 @@ import org.locationtech.jts.geom.MultiPoint;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.TopologyException;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequence;
+import org.locationtech.jts.geom.impl.PackedCoordinateSequenceFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,8 +49,8 @@ import static java.util.Objects.requireNonNull;
 
 public class JtsGeometrySerde
 {
-    // TODO: Are we sure this is thread safe?
-    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory();
+    private static final PackedCoordinateSequenceFactory COORDINATE_SEQUENCE_FACTORY = new PackedCoordinateSequenceFactory();
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(COORDINATE_SEQUENCE_FACTORY);
 
     private JtsGeometrySerde() {}
 
@@ -103,7 +106,7 @@ public class JtsGeometrySerde
         skipEsriType(input);
         skipEnvelope(input);
         int pointCount = input.readInt();
-        return GEOMETRY_FACTORY.createMultiPointFromCoords(readCoordinates(input, pointCount));
+        return GEOMETRY_FACTORY.createMultiPoint(readCoordinates(input, pointCount));
     }
 
     private static Geometry readPolyline(SliceInput input, boolean multitype)
@@ -178,7 +181,7 @@ public class JtsGeometrySerde
         List<Polygon> polygons = new ArrayList<>();
         try {
             for (int i = 0; i < partCount; i++) {
-                Coordinate[] coordinates = readCoordinates(input, partLengths[i]);
+                CoordinateSequence coordinates = readCoordinates(input, partLengths[i]);
                 if (isClockwise(coordinates)) {
                     // next polygon has started
                     if (shell != null) {
@@ -254,13 +257,13 @@ public class JtsGeometrySerde
         return new Coordinate(input.readDouble(), input.readDouble());
     }
 
-    private static Coordinate[] readCoordinates(SliceInput input, int count)
+    private static CoordinateSequence readCoordinates(SliceInput input, int count)
     {
-        Coordinate[] coordinates = new Coordinate[count];
-        for (int i = 0; i < count; i++) {
-            coordinates[i] = readCoordinate(input);
+        double[] coordinateDoubles = new double[2 * count];
+        for (int i = 0; i < 2 * count; i++) {
+            coordinateDoubles[i] = input.readDouble();
         }
-        return coordinates;
+        return COORDINATE_SEQUENCE_FACTORY.create(coordinateDoubles, 2);
     }
 
     /**
@@ -351,7 +354,10 @@ public class JtsGeometrySerde
             partIndex += geometry.getGeometryN(i).getNumPoints();
         }
 
-        writeCoordinates(geometry.getCoordinates(), output);
+        for (int i = 0; i < numParts; i++) {
+            LineString lineString = (LineString) geometry.getGeometryN(i);
+            writeCoordinates(lineString.getCoordinateSequence(), output);
+        }
     }
 
     private static void writePolygon(Geometry geometry, SliceOutput output, boolean multitype)
@@ -410,6 +416,7 @@ public class JtsGeometrySerde
             output.writeInt(partIndex);
         }
 
+        // TODO: Write Polygon shells using PackedCoordinateSequence.  This requires canonicalization.
         Coordinate[] coordinates = geometry.getCoordinates();
         canonicalizePolygonCoordinates(coordinates, partIndexes, shellPart);
         writeCoordinates(coordinates, output);
@@ -443,6 +450,21 @@ public class JtsGeometrySerde
     {
         for (Coordinate coordinate : coordinates) {
             writeCoordinate(coordinate, output);
+        }
+    }
+
+    private static void writeCoordinates(CoordinateSequence coordinates, SliceOutput output)
+    {
+        if (coordinates instanceof PackedCoordinateSequence.Double) {
+            assert coordinates.getDimension() == 2;
+
+            double[] coordinateDoubles = ((PackedCoordinateSequence.Double) coordinates).getRawCoordinates();
+            for (double x : coordinateDoubles) {
+                output.writeDouble(x);
+            }
+        }
+        else {
+            writeCoordinates(coordinates.toCoordinateArray(), output);
         }
     }
 
@@ -480,6 +502,27 @@ public class JtsGeometrySerde
             // shell has to be counter clockwise
             reverse(coordinates, start, end);
         }
+    }
+
+    private static boolean isClockwise(CoordinateSequence coordinates)
+    {
+        return isClockwise(coordinates, 0, coordinates.size());
+    }
+
+    // start and end are in Coordinate space, so the starting x is
+    // coordinates[2 * start], and the starting y is
+    // coordinates[2 * start + 1]
+    private static boolean isClockwise(CoordinateSequence coordinates, int start, int end)
+    {
+        // Sum over the edges: (x2 − x1) * (y2 + y1).
+        // If the result is positive the curve is clockwise,
+        // if it's negative the curve is counter-clockwise.
+        double area = 0;
+        for (int i = start + 1; i < end; i++) {
+            area += (coordinates.getX(i) - coordinates.getX(i - 1)) * (coordinates.getY(i) + coordinates.getY(i - 1));
+        }
+        area += (coordinates.getX(start) - coordinates.getX(end - 1)) * (coordinates.getY(start) + coordinates.getY(end - 1));
+        return area > 0;
     }
 
     private static boolean isClockwise(Coordinate[] coordinates)
