@@ -259,10 +259,7 @@ public class JtsGeometrySerde
 
     private static CoordinateSequence readCoordinates(SliceInput input, int count)
     {
-        double[] coordinateDoubles = new double[2 * count];
-        for (int i = 0; i < 2 * count; i++) {
-            coordinateDoubles[i] = input.readDouble();
-        }
+        double[] coordinateDoubles = ((BasicSliceInput) input).readDoubles(2 * count);
         return COORDINATE_SEQUENCE_FACTORY.create(coordinateDoubles, 2);
     }
 
